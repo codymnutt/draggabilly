@@ -1,5 +1,5 @@
 /*!
- * Draggabilly PACKAGED v2.3.0
+ * Draggabilly PACKAGED v2.4.0
  * Make that shiz draggable
  * https://draggabilly.desandro.com
  * MIT license
@@ -1053,7 +1053,7 @@ return Unidragger;
 }));
 
 /*!
- * Draggabilly v2.3.0
+ * Draggabilly v2.4.0
  * Make that shiz draggable
  * https://draggabilly.desandro.com
  * MIT license
@@ -1174,6 +1174,7 @@ proto._create = function() {
 
   this.enable();
   this.setHandles();
+
 };
 
 /**
@@ -1186,8 +1187,6 @@ proto.setHandles = function() {
   this.bindHandles();
 
   if ( this.options.parentScroll ) {
-    
-      var isWindow = this.options.parentScroll === 'html';
 
        this.options.parentScroll = isElement( this.options.parentScroll ) ? this.options.parentScroll :
           // fallback to querySelector if string
@@ -1195,10 +1194,8 @@ proto.setHandles = function() {
           // otherwise just `true`, use the parent
           this.element.parentNode;
     
-        if (!isWindow)  
-          this.options.parentScroll.addEventListener('scroll', this, false);
-        else
-          window.addEventListener('scroll', this.onscroll);
+        this.parentScrollClientRect = this.options.parentScroll.getBoundingClientRect();
+  
       }
 };
 
@@ -1305,6 +1302,9 @@ proto.dragStart = function( event, pointer ) {
   this.element.classList.add('is-dragging');
   this.dispatchEvent( 'dragStart', event, [ pointer ] );
   this.isDragging = true;
+
+  this.options.parentScroll.addEventListener('scroll', this, false);
+
   // start animation
   this.animate();
 };
@@ -1439,7 +1439,7 @@ proto.dragMove = function( event, pointer, moveVector ) {
 proto.checkAutoScroll = function(pointer) {
    if (this.options.parentScroll && this.options.autoScroll ) {
     
-     var scrollerRect = this.options.parentScroll.getBoundingClientRect();
+     var scrollerRect = this.parentScrollClientRect;
      
      if ((pointer.clientY - this.options.autoScrollThreshold) <= (scrollerRect.top)) {
        this.autoScrollYDirection = -1;
@@ -1531,6 +1531,7 @@ proto.dragEnd = function( event, pointer ) {
   this.setLeftTop();
   this.element.classList.remove('is-dragging');
   this.dispatchEvent( 'dragEnd', event, [ pointer ] );
+  this.options.parentScroll.removeEventListener('scroll', this, false);
   this.isDragging = false;
 };
 
@@ -1632,7 +1633,6 @@ proto.destroy = function() {
         // otherwise just `true`, use the parent
         this.element.parentNode;
   
-      this.options.parentScroll.addEventListener('scroll', this);
    }
   // remove jQuery data
   if ( this.$element ) {
