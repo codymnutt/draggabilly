@@ -1,5 +1,5 @@
 /*!
- * Draggabilly PACKAGED v2.2.0
+ * Draggabilly PACKAGED v2.3.0
  * Make that shiz draggable
  * https://draggabilly.desandro.com
  * MIT license
@@ -150,22 +150,19 @@ return jQueryBridget;
 }));
 
 /*!
- * getSize v2.0.2
+ * getSize v2.0.3
  * measure size of elements
  * MIT license
  */
 
-/*jshint browser: true, strict: true, undef: true, unused: true */
-/*global define: false, module: false, console: false */
+/* jshint browser: true, strict: true, undef: true, unused: true */
+/* globals console: false */
 
 ( function( window, factory ) {
-  'use strict';
-
+  /* jshint strict: false */ /* globals define, module */
   if ( typeof define == 'function' && define.amd ) {
     // AMD
-    define( 'get-size/get-size',[],function() {
-      return factory();
-    });
+    define( 'get-size/get-size',factory );
   } else if ( typeof module == 'object' && module.exports ) {
     // CommonJS
     module.exports = factory();
@@ -240,7 +237,7 @@ function getStyle( elem ) {
   if ( !style ) {
     logError( 'Style returned ' + style +
       '. Are you running this code in a hidden iframe on Firefox? ' +
-      'See http://bit.ly/getsizebug1' );
+      'See https://bit.ly/getsizebug1' );
   }
   return style;
 }
@@ -266,8 +263,8 @@ function setup() {
   // -------------------------- box sizing -------------------------- //
 
   /**
-   * WebKit measures the outer-width on style.width on border-box elems
-   * IE & Firefox<29 measures the inner-width
+   * Chrome & Safari measure the outer-width on style.width on border-box elems
+   * IE11 & Firefox<29 measures the inner-width
    */
   var div = document.createElement('div');
   div.style.width = '200px';
@@ -279,10 +276,11 @@ function setup() {
   var body = document.body || document.documentElement;
   body.appendChild( div );
   var style = getStyle( div );
+  // round value for browser zoom. desandro/masonry#928
+  isBoxSizeOuter = Math.round( getStyleSize( style.width ) ) == 200;
+  getSize.isBoxSizeOuter = isBoxSizeOuter;
 
-  getSize.isBoxSizeOuter = isBoxSizeOuter = getStyleSize( style.width ) == 200;
   body.removeChild( div );
-
 }
 
 // -------------------------- getSize -------------------------- //
@@ -1055,7 +1053,7 @@ return Unidragger;
 }));
 
 /*!
- * Draggabilly v2.2.0
+ * Draggabilly v2.3.0
  * Make that shiz draggable
  * https://draggabilly.desandro.com
  * MIT license
@@ -1105,6 +1103,10 @@ function extend( a, b ) {
   return a;
 }
 
+function isElement( obj ) {
+  return obj instanceof HTMLElement;
+}
+
 function noop() {}
 
 var jQuery = window.jQuery;
@@ -1122,6 +1124,7 @@ function Draggabilly( element, options ) {
 
   // options
   this.options = extend( {}, this.constructor.defaults );
+  this.options = extend( {scrollSpeed: 10,autoScrollThreshold: 30}, this.constructor.defaults );
   this.option( options );
 
   this._create();
@@ -1181,6 +1184,22 @@ proto.setHandles = function() {
     this.element.querySelectorAll( this.options.handle ) : [ this.element ];
 
   this.bindHandles();
+
+  if ( this.options.parentScroll ) {
+    
+      var isWindow = this.options.parentScroll === 'html';
+
+       this.options.parentScroll = isElement( this.options.parentScroll ) ? this.options.parentScroll :
+          // fallback to querySelector if string
+          typeof this.options.parentScroll == 'string' ? document.querySelector( this.options.parentScroll ) :
+          // otherwise just `true`, use the parent
+          this.element.parentNode;
+    
+        if (!isWindow)  
+          this.options.parentScroll.addEventListener('scroll', this, false);
+        else
+          window.addEventListener('scroll', this.onscroll);
+      }
 };
 
 /**
@@ -1268,6 +1287,7 @@ proto.dragStart = function( event, pointer ) {
   }
   this._getPosition();
   this.measureContainment();
+  this.scrollOffset = this.measureScrollOffset();
   // position _when_ drag began
   this.startPosition.x = this.position.x;
   this.startPosition.y = this.position.y;
@@ -1277,11 +1297,38 @@ proto.dragStart = function( event, pointer ) {
   this.dragPoint.x = 0;
   this.dragPoint.y = 0;
 
+  this.lastKnownMoveVector = {
+        x: 0,
+        y: 0
+      };
+
   this.element.classList.add('is-dragging');
   this.dispatchEvent( 'dragStart', event, [ pointer ] );
+  this.isDragging = true;
   // start animation
   this.animate();
 };
+
+proto.measureScrollOffset = function() {
+    if ( !this.options.parentScroll ) {
+      return;
+    }
+  
+    // use element if element
+    this.options.parentScroll = isElement( this.options.parentScroll ) ? this.options.parentScroll :
+      // fallback to querySelector if string
+      typeof this.options.parentScroll == 'string' ? document.querySelector( this.options.parentScroll ) :
+      // otherwise just `true`, use the parent
+      this.options.parentScroll = this.element.parentNode;
+  
+    return {
+      top: this.options.parentScroll.scrollTop,
+      left: this.options.parentScroll.scrollLeft
+    };
+  
+  
+  };
+  
 
 proto.measureContainment = function() {
   var container = this.getContainer();
@@ -1341,12 +1388,24 @@ proto.dragMove = function( event, pointer, moveVector ) {
   if ( !this.isEnabled ) {
     return;
   }
+
+  if (isNaN(moveVector.x) || isNaN(moveVector.y)) {
+        moveVector = this.lastKnownMoveVector;
+      } else {
+        this.lastKnownMoveVector = moveVector;
+      }
+    
+      this.checkAutoScroll(pointer);
+
   var dragX = moveVector.x;
   var dragY = moveVector.y;
 
   var grid = this.options.grid;
   var gridX = grid && grid[0];
   var gridY = grid && grid[1];
+
+  dragX = this.applyScrollOffset('x', dragX);
+  dragY = this.applyScrollOffset('y', dragY);
 
   dragX = applyGrid( dragX, gridX );
   dragY = applyGrid( dragY, gridY );
@@ -1360,12 +1419,73 @@ proto.dragMove = function( event, pointer, moveVector ) {
 
   this.position.x = this.startPosition.x + dragX;
   this.position.y = this.startPosition.y + dragY;
+
+  if (this.options.scale) {
+        dragX = dragX / this.options.scale;
+        dragY = dragY / this.options.scale;
+     }
+
   // set dragPoint properties
   this.dragPoint.x = dragX;
   this.dragPoint.y = dragY;
 
+  this.lastMoveEvent = event;
+  this.lastPointer = pointer;
+  this.lastMoveVector = moveVector;
+
   this.dispatchEvent( 'dragMove', event, [ pointer, moveVector ] );
 };
+
+proto.checkAutoScroll = function(pointer) {
+   if (this.options.parentScroll && this.options.autoScroll ) {
+    
+     var scrollerRect = this.options.parentScroll.getBoundingClientRect();
+     
+     if ((pointer.clientY - this.options.autoScrollThreshold) <= (scrollerRect.top)) {
+       this.autoScrollYDirection = -1;
+      } else if ((pointer.clientY + this.options.autoScrollThreshold) >= (scrollerRect.top + scrollerRect.height)) {
+        this.autoScrollYDirection = 1;
+      } else {
+       this.autoScrollYDirection = 0;
+      }
+
+      var viewportWidth = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
+      
+      if (pointer.clientX <= this.options.autoScrollThreshold) {
+        this.autoScrollXDirection = -1;
+      } else if (pointer.clientX >= (Math.min(viewportWidth, scrollerRect.width) - this.options.autoScrollThreshold)) {
+        this.autoScrollXDirection = 1;
+      } else {
+        this.autoScrollXDirection = 0;
+      }
+
+    } else {
+      this.autoScrollYDirection = 0;
+      this.autoScrollXDirection = 0;
+    }
+  };
+  
+  proto.onscroll = function() {
+    
+    if (!this.isDragging ) {      
+      return;
+    }
+
+    if (this.lastMoveEvent || this.lastPointer || this.lastMoveVector) {      
+      this.dragMove(this.lastMoveEvent, this.lastPointer, this.lastMoveVector);
+    }
+  };
+  
+  proto.applyScrollOffset = function( axis, value ) {
+
+    if ( !this.options.parentScroll ) {
+      return value;
+    }
+  
+    var measure = axis == 'x' ? 'left' : 'top';
+    var scrollOffset = this.measureScrollOffset();    
+    return value + (scrollOffset[measure] - this.scrollOffset[measure]);
+  };
 
 function applyGrid( value, grid, method ) {
   method = method || 'round';
@@ -1411,6 +1531,7 @@ proto.dragEnd = function( event, pointer ) {
   this.setLeftTop();
   this.element.classList.remove('is-dragging');
   this.dispatchEvent( 'dragEnd', event, [ pointer ] );
+  this.isDragging = false;
 };
 
 // -------------------------- animation -------------------------- //
@@ -1421,6 +1542,7 @@ proto.animate = function() {
     return;
   }
 
+  this.performAutoScroll();
   this.positionDrag();
 
   var _this = this;
@@ -1435,6 +1557,28 @@ proto.setLeftTop = function() {
   this.element.style.left = this.position.x + 'px';
   this.element.style.top  = this.position.y + 'px';
 };
+
+proto.setScale = function(scale){
+    this.options.scale = scale;
+  };
+  
+  proto.getScale = function(){
+    return this.options.scale;
+  };
+  
+  proto.performAutoScroll = function(){
+   
+
+
+    if (this.autoScrollYDirection === 1 || this.autoScrollYDirection === -1) {      
+        this.options.parentScroll.scrollTop = this.options.parentScroll.scrollTop + (this.options.scrollSpeed * this.autoScrollYDirection);
+    }
+
+    if (this.autoScrollXDirection === 1 || this.autoScrollXDirection === -1) {
+      this.options.parentScroll.scrollLeft = this.options.parentScroll.scrollLeft + (this.options.scrollSpeed * this.autoScrollXDirection);      
+    }
+
+  };
 
 proto.positionDrag = function() {
   this.element.style.transform = 'translate3d( ' + this.dragPoint.x +
@@ -1479,6 +1623,17 @@ proto.destroy = function() {
   this.element.style.position = '';
   // unbind handles
   this.unbindHandles();
+   //removing an extra event listener for scrolling
+ if ( this.options.parentScroll ) {
+  
+     this.options.parentScroll = isElement( this.options.parentScroll ) ? this.options.parentScroll :
+        // fallback to querySelector if string
+        typeof this.options.parentScroll == 'string' ? document.querySelector( this.options.parentScroll ) :
+        // otherwise just `true`, use the parent
+        this.element.parentNode;
+  
+      this.options.parentScroll.addEventListener('scroll', this);
+   }
   // remove jQuery data
   if ( this.$element ) {
     this.$element.removeData('draggabilly');

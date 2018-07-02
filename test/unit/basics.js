@@ -8,7 +8,12 @@ QUnit.test( 'init', function( assert ) {
   h2.textContent = 'Drag this element';
   testElem.classList.add('running');
   var draggieElem =  testElem.querySelector('.draggie');
-  var draggie = new Draggabilly( draggieElem );
+  var draggie = new Draggabilly( draggieElem ,{
+        parentScroll: '#h',
+		autoScroll: true,
+        autoScrollThreshold:130,
+        scrollSpeed:10
+      });
 
   assert.equal( draggieElem.style.position, 'relative', 'position: relative set' );
 
